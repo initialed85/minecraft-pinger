@@ -1,0 +1,10 @@
+[Unit]
+Description=minecraft-pinger
+
+[Service]
+Environment=SERVER=minecraft.initialed85.cc
+ExecStart=/bin/minecraft_pinger
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

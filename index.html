@@ -305,6 +305,7 @@
         for (const h of hist) {
           const t = Date.parse(h.timestamp);
           if (isNaN(t)) continue;
+          if (cutoff !== null && t < cutoff) continue;
           count++;
           if (h.latency < latMin) latMin = h.latency;
           if (h.latency > latMaxAll) latMaxAll = h.latency;
@@ -313,7 +314,6 @@
           if (h.connectivity > connMaxAll) connMaxAll = h.connectivity;
           connSum += h.connectivity;
           if (h.connectivity === 1) upCount++;
-          if (cutoff !== null && t < cutoff) continue;
           if (h.latency > visLatMax) visLatMax = h.latency;
           latPts.push({ x: t, y: h.latency });
           connPts.push({ x: t, y: h.connectivity });
