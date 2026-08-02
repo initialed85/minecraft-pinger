@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+axum = { version = "0.8", features = ["ws"] }
 chrono = { version = "0.4.45", features = ["serde"] }
 env_logger = "0.11.11"
 log = "0.4.33"
@@ -11,5 +12,5 @@ minecraft-pinger = { git = "https://github.com/Flash303/minecraft-pinger", branc
 serde = "1.0.229"
 serde_json = "1.0.151"
 ticker = "0.1.1"
-tiny_http = "0.12.0"
 tokio = { version = "1.0", features = ["full"] }
+ping = { version = "0.9", features = ["tokio"] }

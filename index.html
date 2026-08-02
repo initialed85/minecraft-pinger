@@ -40,7 +40,7 @@
       .summary {
         font-size: 13px;
         white-space: pre;
-        margin: 0 0 8px;
+        margin: 0 0 4px;
         line-height: 1.3;
       }
       .summary .host {
@@ -48,22 +48,22 @@
       }
       .charts {
         flex: 1 1 auto;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        min-height: 240px;
+        display: grid;
+        grid-template-columns: 1fr;
+        grid-template-rows: repeat(4, minmax(0, 1fr));
+        gap: 4px;
+        min-height: 0;
       }
       .chart {
         position: relative;
-        flex: 1 1 0;
-        min-height: 100px;
+        min-height: 0;
         width: 100%;
       }
       .err {
         color: #b00;
         font-size: 12px;
-        margin-top: 8px;
-        min-height: 14px;
+        margin-top: 4px;
+        min-height: 0;
       }
       .stale {
         color: #999;
@@ -107,28 +107,43 @@
       </div>
       <pre class="summary" id="summary">loading...</pre>
       <div class="charts">
-        <div class="chart"><canvas id="connChart"></canvas></div>
-        <div class="chart"><canvas id="latChart"></canvas></div>
+        <div class="chart"><canvas id="mcConnChart"></canvas></div>
+        <div class="chart"><canvas id="netConnChart"></canvas></div>
+        <div class="chart"><canvas id="mcLatChart"></canvas></div>
+        <div class="chart"><canvas id="netLatChart"></canvas></div>
       </div>
       <div class="err" id="err"></div>
     </div>
 
     <script>
-      const endpoint = `${window.location.origin}/ping`;
+      const wsBase = `${window.location.origin.replace(/^http/, "ws")}`;
+      const mcWsUrl = `${wsBase}/ws-minecraft`;
+      const netWsUrl = `${wsBase}/ws-network`;
 
-      const xScaleBase = {
-        type: "linear",
-        ticks: {
-          maxRotation: 0,
-          autoSkip: true,
-          maxTicksLimit: 8,
-          callback: (val) => {
-            const d = new Date(val);
-            if (isNaN(d)) return "";
-            return d.toLocaleTimeString(undefined, { hour12: false });
-          },
-        },
+      const timeTick = (val) => {
+        const d = new Date(val);
+        if (isNaN(d)) return "";
+        return d.toLocaleTimeString(undefined, { hour12: false });
       };
+
+      // reserve the same vertical space on every chart's x axis so the
+      // timestamp row on the bottom chart doesn't make its plot area
+      // shorter than the others. for hidden-tick charts we keep the
+      // ticks rendered (so the layout math reserves space) but make the
+      // text transparent so nothing is actually drawn.
+      function makeXScale(showTicks) {
+        return {
+          type: "linear",
+          ticks: {
+            display: true,
+            color: showTicks ? "#666" : "transparent",
+            maxRotation: 0,
+            autoSkip: true,
+            maxTicksLimit: 8,
+            callback: timeTick,
+          },
+        };
+      }
 
       const tooltipBase = {
         callbacks: {
@@ -139,84 +154,108 @@
         },
       };
 
-      const connChart = new Chart(document.getElementById("connChart").getContext("2d"), {
-        type: "line",
-        data: {
-          datasets: [
-            {
-              label: "connectivity",
-              data: [],
-              borderColor: "#16a34a",
-              backgroundColor: "rgba(22, 163, 74, 0.10)",
-              borderWidth: 1,
-              pointRadius: 0,
-              stepped: "before",
-              fill: true,
-            },
-          ],
-        },
-        options: {
-          animation: false,
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: { mode: "nearest", axis: "x", intersect: false },
-          scales: {
-            x: xScaleBase,
-            y: {
-              title: { display: true, text: "connectivity" },
-              min: 0,
-              max: 1.1,
-              ticks: { stepSize: 1, callback: (v) => (v === 1 ? "up" : v === 0 ? "down" : "") },
-            },
-          },
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              ...tooltipBase,
-              label: (item) => `connectivity: ${item.parsed.y === 1 ? "up" : "down"}`,
-            },
-          },
-        },
-      });
+      const MC_COLOR = "#16a34a";
+      const MC_BG = "rgba(22, 163, 74, 0.10)";
+      const NET_COLOR = "#ea580c";
+      const NET_BG = "rgba(234, 88, 12, 0.10)";
 
-      const latChart = new Chart(document.getElementById("latChart").getContext("2d"), {
-        type: "line",
-        data: {
-          datasets: [
-            {
-              label: "latency (ms)",
-              data: [],
-              borderColor: "#2563eb",
-              backgroundColor: "rgba(37, 99, 235, 0.12)",
-              borderWidth: 1,
-              pointRadius: 0,
-              tension: 0.2,
-              fill: true,
-            },
-          ],
+      const Y_FONT = { family: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", size: 12 };
+      const pad4 = (s) => String(s).padStart(4, " ");
+
+      const connScale = {
+        title: { display: true, text: "connectivity" },
+        min: 0,
+        max: 1.1,
+        ticks: {
+          stepSize: 1,
+          font: Y_FONT,
+          callback: (v) => pad4(v),
         },
-        options: {
-          animation: false,
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: { mode: "nearest", axis: "x", intersect: false },
-          scales: {
-            x: xScaleBase,
-            y: {
-              title: { display: true, text: "ms" },
-              min: 0,
-              ticks: { stepSize: 20 },
+      };
+
+      function makeConnChart(canvasId, label, color, bg, xScale) {
+        return new Chart(document.getElementById(canvasId).getContext("2d"), {
+          type: "line",
+          data: {
+            datasets: [
+              {
+                label,
+                data: [],
+                borderColor: color,
+                backgroundColor: bg,
+                borderWidth: 1,
+                pointRadius: 0,
+                stepped: "before",
+                fill: true,
+              },
+            ],
+          },
+          options: {
+            animation: false,
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "nearest", axis: "x", intersect: false },
+            scales: { x: xScale, y: connScale },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                ...tooltipBase,
+                label: (item) => `${label}: ${item.parsed.y === 1 ? "up" : "down"}`,
+              },
             },
           },
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              ...tooltipBase,
-              label: (item) => `${item.parsed.y} ms`,
+        });
+      }
+
+      function makeLatChart(canvasId, label, color, bg, xScale) {
+        return new Chart(document.getElementById(canvasId).getContext("2d"), {
+          type: "line",
+          data: {
+            datasets: [
+              {
+                label,
+                data: [],
+                borderColor: color,
+                backgroundColor: bg,
+                borderWidth: 1,
+                pointRadius: 0,
+                tension: 0.2,
+                fill: true,
+              },
+            ],
+          },
+          options: {
+            animation: false,
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "nearest", axis: "x", intersect: false },
+            scales: {
+              x: xScale,
+              y: {
+                title: { display: true, text: "ms" },
+                min: 0,
+                ticks: { stepSize: 20, font: Y_FONT, callback: (v) => pad4(v) },
+              },
+            },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                ...tooltipBase,
+                label: (item) => `${label}: ${item.parsed.y} ms`,
+              },
             },
           },
-        },
-      });
+        });
+      }
+
+      const hiddenX = makeXScale(false);
+      const shownX = makeXScale(true);
+      const charts = {
+        mcConn: makeConnChart("mcConnChart", "minecraft conn", MC_COLOR, MC_BG, hiddenX),
+        netConn: makeConnChart("netConnChart", "network conn", NET_COLOR, NET_BG, hiddenX),
+        mcLat: makeLatChart("mcLatChart", "minecraft lat", MC_COLOR, MC_BG, hiddenX),
+        netLat: makeLatChart("netLatChart", "network lat", NET_COLOR, NET_BG, shownX),
+      };
 
       const summaryEl = document.getElementById("summary");
       const errEl = document.getElementById("err");
@@ -229,6 +268,7 @@
         document.querySelectorAll("#controls button").forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
         timeframe = btn.dataset.tf === "fit" ? null : Number(btn.dataset.tf);
+        render();
       });
 
       function fmt(n) {
@@ -238,77 +278,147 @@
       function setXRange(minT, maxT, fallbackMin) {
         const xMin = minT !== null ? minT : fallbackMin !== null ? fallbackMin : Date.now() - 3_600_000;
         const xMax = maxT !== null ? maxT : Date.now();
-        connChart.options.scales.x.min = xMin;
-        connChart.options.scales.x.max = xMax;
-        latChart.options.scales.x.min = xMin;
-        latChart.options.scales.x.max = xMax;
-      }
-
-      async function tick() {
-        try {
-          const res = await fetch(endpoint, { cache: "no-store" });
-          if (!res.ok) throw new Error("HTTP " + res.status);
-          const data = await res.json();
-
-          const host = data.host;
-          const lat = data.latency || {};
-          const conn = data.connectivity || {};
-          const history = Array.isArray(data.history) ? data.history : [];
-
-          const now = Date.now();
-          const cutoff = timeframe ? now - timeframe : null;
-
-          const latencyPts = [];
-          const connPts = [];
-          for (const h of history) {
-            const t = Date.parse(h.timestamp);
-            if (isNaN(t)) continue;
-            if (cutoff !== null && t < cutoff) continue;
-            latencyPts.push({ x: t, y: h.latency });
-            connPts.push({ x: t, y: h.connectivity });
-          }
-
-          const upPct =
-            history.length > 0 ? (history.filter((h) => h.connectivity === 1).length / history.length) * 100 : 0;
-
-          summaryEl.classList.remove("stale");
-          summaryEl.textContent =
-            `${host}\n` +
-            `latency: ${fmt(lat.min)} ms (min), ${fmt(lat.avg)} ms (avg), ${fmt(lat.max)} ms (max)\n` +
-            `connectivity: ${fmt(conn.min)} / ${fmt(conn.avg)} / ${fmt(conn.max)} (min/avg/max) — ${upPct.toFixed(1)}% up`;
-
-          connChart.data.datasets[0].data = connPts;
-          latChart.data.datasets[0].data = latencyPts;
-
-          const latMax = latencyPts.length ? Math.max(...latencyPts.map((p) => p.y)) : 0;
-          const lat1100 = latMax > 100;
-          latChart.options.scales.y.max = lat1100 ? 1100 : 110;
-          latChart.options.scales.y.ticks.stepSize = lat1100 ? 200 : 20;
-
-          let minT = null,
-            maxT = null;
-          if (latencyPts.length > 0) {
-            minT = latencyPts[0].x;
-            maxT = latencyPts[latencyPts.length - 1].x;
-          }
-          if (cutoff !== null) {
-            setXRange(Math.min(cutoff, minT ?? now), now, cutoff);
-          } else {
-            setXRange(minT, maxT, null);
-          }
-
-          connChart.update("none");
-          latChart.update("none");
-
-          errEl.textContent = "";
-        } catch (e) {
-          summaryEl.classList.add("stale");
-          errEl.textContent = "error: " + (e && e.message ? e.message : e);
+        for (const c of Object.values(charts)) {
+          c.options.scales.x.min = xMin;
+          c.options.scales.x.max = xMax;
         }
       }
 
-      tick();
-      setInterval(tick, 1_000);
+      let host = "";
+      const MAX_HISTORY = 14400;
+      const mcBucket = { hist: [], label: "minecraft" };
+      const netBucket = { hist: [], label: "network" };
+
+      function processSeries(hist, cutoff) {
+        const latPts = [];
+        const connPts = [];
+        let latMin = Infinity,
+          latMaxAll = 0,
+          latSum = 0;
+        let connMin = Infinity,
+          connMaxAll = 0,
+          connSum = 0;
+        let upCount = 0,
+          count = 0,
+          visLatMax = 0;
+
+        for (const h of hist) {
+          const t = Date.parse(h.timestamp);
+          if (isNaN(t)) continue;
+          count++;
+          if (h.latency < latMin) latMin = h.latency;
+          if (h.latency > latMaxAll) latMaxAll = h.latency;
+          latSum += h.latency;
+          if (h.connectivity < connMin) connMin = h.connectivity;
+          if (h.connectivity > connMaxAll) connMaxAll = h.connectivity;
+          connSum += h.connectivity;
+          if (h.connectivity === 1) upCount++;
+          if (cutoff !== null && t < cutoff) continue;
+          if (h.latency > visLatMax) visLatMax = h.latency;
+          latPts.push({ x: t, y: h.latency });
+          connPts.push({ x: t, y: h.connectivity });
+        }
+
+        return {
+          latPts,
+          connPts,
+          latMin: count ? latMin : 0,
+          latAvg: count ? latSum / count : 0,
+          latMax: count ? latMaxAll : 0,
+          connMin: count ? connMin : 0,
+          connAvg: count ? connSum / count : 0,
+          connMax: count ? connMaxAll : 0,
+          upPct: count ? (upCount / count) * 100 : 0,
+          visLatMax,
+          firstT: latPts.length ? latPts[0].x : null,
+          lastT: latPts.length ? latPts[latPts.length - 1].x : null,
+        };
+      }
+
+      function render() {
+        const now = Date.now();
+        const cutoff = timeframe ? now - timeframe : null;
+
+        const mc = processSeries(mcBucket.hist, cutoff);
+        const net = processSeries(netBucket.hist, cutoff);
+
+        charts.mcConn.data.datasets[0].data = mc.connPts;
+        charts.netConn.data.datasets[0].data = net.connPts;
+        charts.mcLat.data.datasets[0].data = mc.latPts;
+        charts.netLat.data.datasets[0].data = net.latPts;
+
+        const sharedVisLatMax = Math.max(mc.visLatMax, net.visLatMax);
+        const tall = sharedVisLatMax > 260;
+        const latMax = tall ? 1100 : 260;
+        const latStep = tall ? 200 : 20;
+        charts.mcLat.options.scales.y.max = latMax;
+        charts.mcLat.options.scales.y.ticks.stepSize = latStep;
+        charts.netLat.options.scales.y.max = latMax;
+        charts.netLat.options.scales.y.ticks.stepSize = latStep;
+
+        let minT = null,
+          maxT = null;
+        for (const s of [mc, net]) {
+          if (s.firstT === null) continue;
+          minT = minT === null ? s.firstT : Math.min(minT, s.firstT);
+          maxT = maxT === null ? s.lastT : Math.max(maxT, s.lastT);
+        }
+        if (cutoff !== null) {
+          setXRange(Math.min(cutoff, minT ?? now), now, cutoff);
+        } else {
+          setXRange(minT, maxT, null);
+        }
+
+        const line = (label, s) =>
+          `${label.padEnd(9)} latency ${fmt(s.latMin)}/${fmt(s.latAvg)}/${fmt(s.latMax)} (min/avg/max) | conn ${fmt(s.connMin)}/${fmt(s.connAvg)}/${fmt(s.connMax)} — ${s.upPct.toFixed(1)}% up`;
+
+        summaryEl.classList.remove("stale");
+        summaryEl.textContent = `${host}\n` + line("minecraft", mc) + "\n" + line("network", net);
+
+        for (const c of Object.values(charts)) c.update("none");
+      }
+
+      function connectSeries(url, bucket) {
+        const ws = new WebSocket(url);
+
+        ws.onmessage = (ev) => {
+          let msg;
+          try {
+            msg = JSON.parse(ev.data);
+          } catch {
+            return;
+          }
+          if (msg.type === "snapshot") {
+            if (msg.host) host = msg.host;
+            bucket.hist = Array.isArray(msg.history) ? msg.history : [];
+            render();
+            errEl.textContent = "";
+          } else if (msg.type === "ping") {
+            bucket.hist.push({
+              timestamp: msg.timestamp,
+              connectivity: msg.connectivity,
+              latency: msg.latency,
+            });
+            if (bucket.hist.length > MAX_HISTORY + 1000) {
+              bucket.hist.splice(0, bucket.hist.length - MAX_HISTORY);
+            }
+            render();
+          }
+        };
+
+        ws.onclose = () => {
+          summaryEl.classList.add("stale");
+          errEl.textContent = `${bucket.label} disconnected, reconnecting...`;
+          setTimeout(() => connectSeries(url, bucket), 1_000);
+        };
+
+        ws.onerror = () => {
+          ws.close();
+        };
+      }
+
+      connectSeries(mcWsUrl, mcBucket);
+      connectSeries(netWsUrl, netBucket);
     </script>
   </body>
 </html>
