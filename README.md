@@ -2,6 +2,11 @@
 
 A simple daemon for pinging a given host or IP via ICMP and via the Minecraft Java 26.2 protocol.
 
+I've (hopefully still) got it running for my own server at these two URLs:
+
+- [minecraft-ping-home.dev.initialed85.cc/](https://minecraft-ping-home.dev.initialed85.cc/)
+- [minecraft-ping-perth.dev.initialed85.cc/](https://minecraft-ping-perth.dev.initialed85.cc/)
+
 ## Usage
 
 ### Native
