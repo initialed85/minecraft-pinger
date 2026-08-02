@@ -6,29 +6,33 @@ A simple daemon for pinging a given host or IP via ICMP and via the Minecraft Ja
 
 ### Native
 
-NOTE: Needs Cargo / Rust installed
-
 ```shell
-git clone https://github.com/initialed85/minecraft-pinger
-
 pushd minecraft-pinger
 
-cargo build --release
+# if Linux AMD64
+curl -L -O https://github.com/initialed85/minecraft-pinger/releases/download/v0.0.1/minecraft_pinger-linux-amd64
 
-# NOTE: sudo is required because of the use of a RAW socket for ICMP
-# test it out in the foreground (Ctrl + C to stop); change the SERVER env var as required
-sudo bash -c 'SERVER=minecraft.initialed85.cc ./target/release/minecraft_pinger'
+# or, if Linux ARM64
+curl -L -O https://github.com/initialed85/minecraft-pinger/releases/download/v0.0.1/minecraft_pinger-linux-arm64
+
+sudo mv minecraft_pinger-linux-* /usr/bin/minecraft_pinger
+
+# test (in foreground, Ctrl + C to quit); note: sudo required because ping uses a raw socket
+sudo bash -c 'SERVER=minecraft.initialed85.cc minecraft_pinger'
 ```
 
 You can then browse to [localhost:8080](http://localhost:8080) to see the UI.
 
-You can run it natively as a systemd service like this (assuming you've already built it as above):
+If you want to run it as a systemd service (having already done the above):
 
 ```shell
-sudo cp -fv ./target/release/minecraft_pinger /usr/bin/minecraft_pinger
+curl -L -O https://raw.githubusercontent.com/initialed85/minecraft-pinger/refs/tags/v0.0.1/minecraft-pinger.service
 
-# change the SERVER env var as required in this file as required
-sudo cp -fv ./minecraft-pinger.service /etc/systemd/system/minecraft-pinger.service
+#
+# ensure to edit the SERVER env var as required in "minecraft-pinger.service" first
+#
+
+sudo mv minecraft-pinger.service /etc/systemd/system/minecraft-pinger.service
 sudo systemctl daemon-reload
 sudo systemctl restart minecraft-pinger.service
 ```
@@ -36,6 +40,8 @@ sudo systemctl restart minecraft-pinger.service
 Same-same, you can then browse to [localhost:8080](http://localhost:8080) to see the UI.
 
 ### Kubernetes
+
+NOTE: The Docker image has only been built and pushed for Linux AMD64 at the moment.
 
 Kubernetes is a bit like sex, I can't really tell you the best way to f\*ck your wife- but it's something like this (assuming you have cert-manager):
 
@@ -65,14 +71,6 @@ spec:
       labels:
         app: pinger
     spec:
-      volumes:
-        - name: minecraft
-          configMap:
-            name: minecraft
-        - name: shared
-          persistentVolumeClaim:
-            claimName: minecraft
-            readOnly: false
       containers:
         - name: pinger
           image: initialed85/minecraft-pinger:latest
@@ -106,7 +104,6 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
 spec:
-  ingressClassName: traefik
   tls:
     - hosts:
         # NOTE: ensure to change this as required
