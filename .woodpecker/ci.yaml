@@ -1,0 +1,16 @@
+# fmt, tests and the release build. The binary is published by build.yaml and the GitHub release is
+# made by release.yaml, so a pull request still gets the checks without shipping anything.
+steps:
+  - name: check
+    image: docker.io/library/rust:1.99.1
+    commands:
+      - rustc --version
+      - cargo fmt --check
+      - cargo test
+      - cargo build --release
+      - ls -l target/release/minecraft_pinger
+
+when:
+  - event: push
+    branch: master
+  - event: pull_request

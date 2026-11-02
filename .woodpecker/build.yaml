@@ -1,0 +1,52 @@
+# Publish the server image and stamp the dev app that runs it.
+#
+# The image is built on beefcake-ci-1's daemon (see the long comment in home-ops'
+# .woodpecker/README.md for why: the agent's own /var/lib/docker is a 30 GiB root with a 12 GiB
+# ephemeral Pod limit).
+steps:
+  - name: build-and-push
+    image: docker.io/library/docker:cli
+    privileged: true
+    environment:
+      DOCKER_HOST: tcp://docker-beefcake-ci-1:2375
+      IMAGE: docker.io/initialed85/minecraft-pinger
+    backend_options:
+      kubernetes:
+        secrets:
+          - name: dockerhub
+            key: username
+            target:
+              env: DOCKERHUB_USER
+          - name: dockerhub
+            key: token
+            target:
+              env: DOCKERHUB_TOKEN
+    commands:
+      - docker info --format 'daemon={{.Name}} images_before={{.Images}}'
+      - echo "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USER" --password-stdin
+      - docker build --platform=linux/amd64 -t "$IMAGE:$CI_COMMIT_SHA" -t "$IMAGE:latest" .
+      - docker push "$IMAGE:$CI_COMMIT_SHA"
+      - docker push "$IMAGE:latest"
+      - docker image inspect --format 'digest={{.RepoDigests}}' "$IMAGE:$CI_COMMIT_SHA"
+
+  - name: deploy-home-ops
+    image: docker.io/initialed85/wp-kustomize-deploy:latest
+    depends_on: [build-and-push]
+    settings:
+      image: docker.io/initialed85/minecraft-pinger
+      dir: clusters/dev/applications/minecraft
+    backend_options:
+      kubernetes:
+        secrets:
+          - name: home-ops-deploy-key
+            key: id_ed25519
+            target:
+              env: PLUGIN_DEPLOY_KEY
+          - name: home-ops-deploy-key
+            key: known_hosts
+            target:
+              env: PLUGIN_KNOWN_HOSTS
+
+when:
+  - event: push
+    branch: master

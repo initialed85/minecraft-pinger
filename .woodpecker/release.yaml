@@ -1,0 +1,36 @@
+# The linux binaries the old GitHub Actions workflow published on a v* tag: amd64 and arm64, the
+# arm64 one cross-compiled with the Debian aarch64 gcc (the same linker the workflow used).
+#
+# The release is built by the same workflow that publishes it, because the workspace PVC is per
+# workflow (compiler.go:137 prefixes the volume with a per-workflow ULID), so a separate workflow would
+# not see the artifacts.
+steps:
+  - name: artifacts
+    image: docker.io/library/rust:1.99.1
+    commands:
+      - apt-get update -qq && apt-get install -y -qq --no-install-recommends gcc-aarch64-linux-gnu >/dev/null
+      - rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
+      - mkdir -p stage
+      - cargo build --release --target x86_64-unknown-linux-gnu
+      - cp target/x86_64-unknown-linux-gnu/release/minecraft_pinger stage/minecraft_pinger-linux-amd64
+      - CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc cargo build --release --target aarch64-unknown-linux-gnu
+      - cp target/aarch64-unknown-linux-gnu/release/minecraft_pinger stage/minecraft_pinger-linux-arm64
+      - ls -l stage
+
+  - name: release
+    image: docker.io/initialed85/wp-gh-release:latest
+    depends_on: [artifacts]
+    settings:
+      files:
+        - stage/minecraft_pinger-linux-amd64
+        - stage/minecraft_pinger-linux-arm64
+    backend_options:
+      kubernetes:
+        secrets:
+          - name: github-token
+            key: token
+            target:
+              env: PLUGIN_TOKEN
+
+when:
+  - event: tag
