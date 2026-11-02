@@ -17,7 +17,15 @@ steps:
     image: docker.io/library/rust:1.99.1
     depends_on: [guard-tag-name]
     commands:
-      - apt-get update -qq && apt-get install -y -qq --no-install-recommends gcc-aarch64-linux-gnu >/dev/null
+      # The cross linker needs the target's C runtime objects (crti.o, Scrt1.o) as well as the compiler.
+      # Debian puts them in libc6-dev-arm64-cross, which gcc-aarch64-linux-gnu only *Recommends*, and this
+      # install runs with --no-install-recommends - the old Actions runner did not, which is why the same
+      # two packages linked there and not here. minecraft-pinger #4 died at the aarch64 link with
+      # "aarch64-linux-gnu/bin/ld: cannot find crti.o: No such file or directory" and the same for Scrt1.o,
+      # after compiling every dependency. Name the dev package explicitly instead of dropping
+      # --no-install-recommends: it is the third time this port has had to be told that the Actions runner
+      # was a fatter image than the one CI uses (GNU vs BSD text tools being the other two).
+      - apt-get update -qq && apt-get install -y -qq --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross >/dev/null
       - rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
       - mkdir -p stage
       - cargo build --release --target x86_64-unknown-linux-gnu
