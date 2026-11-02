@@ -4,9 +4,18 @@
 # The release is built by the same workflow that publishes it, because the workspace PVC is per
 # workflow (compiler.go:137 prefixes the volume with a per-workflow ULID), so a separate workflow would
 # not see the artifacts.
+# `when` has no tag-pattern filter (only `ref`, and for a tag event the ref is not a bare tag name), so the
+# old workflow's `on.push.tags: v*` becomes an explicit guard: a tag that is not v* fails this pipeline
+# loudly instead of quietly publishing a release nobody asked for.
 steps:
+  - name: guard-tag-name
+    image: docker.io/library/rust:1.99.1
+    commands:
+      - case "$CI_COMMIT_TAG" in v*) echo "publishing release $CI_COMMIT_TAG" ;; *) echo "refusing to publish from tag $CI_COMMIT_TAG - this repo releases v* tags only"; exit 1 ;; esac
+
   - name: artifacts
     image: docker.io/library/rust:1.99.1
+    depends_on: [guard-tag-name]
     commands:
       - apt-get update -qq && apt-get install -y -qq --no-install-recommends gcc-aarch64-linux-gnu >/dev/null
       - rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
