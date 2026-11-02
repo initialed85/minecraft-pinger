@@ -1,0 +1,8 @@
+# The image is one binary: `COPY minecraft_pinger /bin/minecraft_pinger`. Everything else in the
+# context is build residue, and the context is on the NFS workspace PVC, so `target/` (a few hundred
+# MB of .rlib and incremental junk) would be walked and shipped to the daemon for nothing.
+#
+# The `*` then allow-one-file form is deliberate: adding a file to the Dockerfile later has to be an
+# explicit change here, not an accident that quietly grows the context.
+*
+!minecraft_pinger

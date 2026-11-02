@@ -5,6 +5,11 @@ steps:
     image: docker.io/library/rust:1.99.1
     commands:
       - rustc --version
+      # `cargo fmt --check` fails closed on this image: rust:1.99.1 ships without the rustfmt
+      # component (measured: `cargo fmt --version` -> "error: 'cargo-fmt' is not installed for the
+      # toolchain '1.99.1'"), and unlike the wasm benches there is no rust-toolchain.toml here to
+      # pull it in. The 1.97.1 benches do have one, which is why their fmt passes.
+      - rustup component add rustfmt
       - cargo fmt --check
       - cargo test
       - cargo build --release

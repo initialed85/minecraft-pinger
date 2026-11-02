@@ -4,9 +4,21 @@
 # .woodpecker/README.md for why: the agent's own /var/lib/docker is a 30 GiB root with a 12 GiB
 # ephemeral Pod limit).
 steps:
+  # The Dockerfile is a runtime stage only (`COPY minecraft_pinger /bin/minecraft_pinger`), so the
+  # binary has to be sitting in the context - the same two-step rooter, strata and memebrary use.
+  # It cannot borrow the release build from the ci.yaml `check` step: each pipeline gets its own
+  # workspace PVC, so target/ from one workflow is not on the other.
+  - name: compile
+    image: docker.io/library/rust:1.99.1
+    commands:
+      - cargo build --release --locked
+      - cp target/release/minecraft_pinger ./minecraft_pinger
+      - ls -l minecraft_pinger
+
   - name: build-and-push
     image: docker.io/library/docker:cli
     privileged: true
+    depends_on: [compile]
     environment:
       DOCKER_HOST: tcp://docker-beefcake-ci-1:2375
       IMAGE: docker.io/initialed85/minecraft-pinger
